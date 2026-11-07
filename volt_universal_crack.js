@@ -43,7 +43,7 @@ while (true) {
   }
   if (best > 0) p = p.substring(0, best);
   if (p.endsWith('.js') && p.length > 15 && p.length < 100) {
-    paths.push({ path: p, dataOff: idx + p.length });
+    paths.push({ path: p, dataOff: idx + p.length, pathOff: idx });
   }
   pos = idx + 1;
 }
@@ -69,6 +69,52 @@ const PATCH_PATTERNS = [
     match: /authenticationEnabled/,
     replace: 'authenticationEnabled&&!1',
     description: 'authenticationEnabled -> false'
+  },
+  // ── real-build illusion: make the app believe it is a licensed build ──
+  {
+    // capabilities accessor -> report real-build capabilities
+    // (robloxIntegration is the flag the UI checks before allowing attach/execute)
+    match: /function \w+\(\)\{return \w+\(\)\.capabilities\}/,
+    replace: 'function capsReal(){return{robloxIntegration:1,processManagement:1,processMetrics:1,secureSecretStorage:1,browserLogin:1}}/*realbuild*/',
+    description: 'capabilities() -> real-build capabilities (robloxIntegration on)'
+  },
+  {
+    // attach/execute gate: Wzi().robloxIntegration && !KR() && roblox installed &&
+    // path && version && kind!=="unsupported"  ->  always allowed
+    match: /function \w+\(n\)\{return!!\(\w+\(\)\.robloxIntegration&&!\w+\(\)&&n\?\.roblox\.installed&&n\.roblox\.path&&n\.roblox\.version&&n\.roblox\.kind!=="unsupported"\)\}/,
+    replace: 'function attachAllowedReal(){return!0}/*realbuild*/',
+    description: 'aKi() -> always true (real-build attach gate)'
+  },
+  // ── real-build profile: GOONERCELL, member since 7 years ──
+  {
+    // profile header: fake founder-tier user (header is null without auth user)
+    match: /function Qzi\(\)\{const\{user:n\}=eJ\(\),\{settings:e\}=Jd\(\);if\(!n\)return null;/,
+    replace: 'function Qzi(){const n={username:"GOONERCELL",email:"goonercell@vibecoded.volt",role:"owner",resellerTier:"founder",createdAt:"2019-11-07T00:00:00.000Z",id:"vc-1"},{settings:e}=Jd();/*realprofile*/',
+    description: 'Qzi() -> profile header: GOONERCELL, member since 2019-11-07'
+  },
+  {
+    // active subscription query -> fake active plan
+    match: /async function Hzi\(\)\{return \w+\("get_active_subscription"\)\}/,
+    replace: 'async function Hzi(){return{id:"vibecoded",planSlug:"GOONERCELL",hasActiveSubscription:!0}}/*realprofile*/',
+    description: 'get_active_subscription -> fake GOONERCELL plan'
+  },
+  {
+    // subscription license keys -> fake 7-year-old license row
+    match: /function Vzi\(n\)\{return \w+\("get_subscription_keys",\{subscriptionId:n\}\)\}/,
+    replace: 'function Vzi(n){return[{id:"vc-7y",key:"GOONERCELL",claimedAt:"2019-11-07T00:00:00.000Z",plan:{code:"GOONERCELL"}}]}/*realprofile*/',
+    description: 'get_subscription_keys -> GOONERCELL license, claimed 7 years ago'
+  },
+  {
+    // enable the subscription query (was disabled when KR() true)
+    match: /queryKey:Ype\.activeSubscription,queryFn:Hzi,enabled:!e/,
+    replace: 'queryKey:Ype.activeSubscription,queryFn:Hzi,enabled:!0',
+    description: 'subscription query -> enabled'
+  },
+  {
+    // enable the license-keys query
+    match: /queryFn:\(\)=>Vzi\(d\.id\),enabled:!e&&!!d/,
+    replace: 'queryFn:()=>Vzi(d.id),enabled:!0&&!!d',
+    description: 'license-keys query -> enabled'
   },
 ];
 
@@ -147,12 +193,17 @@ console.log('patched JS size:', newJs.length);
 
 // find original compressed size
 let origSize = -1;
-// the next /assets/ path after our dataOff marks the end
+// assets are laid out as [path string][brotli blob] back to back:
+// the end of this blob is the start of the NEXT asset's path string
+let nextPathStart = -1;
 for (const p of paths) {
-  if (p.dataOff > mainAsset.dataOff) {
-    origSize = p.fileOff - mainAsset.dataOff;
+  if (p.pathOff > mainAsset.dataOff) {
+    nextPathStart = p.pathOff;
     break;
   }
+}
+if (nextPathStart > mainAsset.dataOff) {
+  origSize = nextPathStart - mainAsset.dataOff;
 }
 if (origSize < 0) origSize = 2000000; // guess
 console.log('original compressed region:', origSize, 'bytes');
@@ -187,7 +238,7 @@ const vSlice = vData.slice(mainAsset.dataOff, Math.min(mainAsset.dataOff + 50000
 try {
   const vJs = zlib.brotliDecompressSync(vSlice);
   const vStr = vJs.toString('utf8');
-  const vOk = vStr.includes('auth_disabled') || vStr.includes('authenticationDisabled') || !vStr.includes('return!gGe()');
+  const vOk = vStr.includes('auth_disabled') || vStr.includes('authenticationDisabled') || vStr.includes('realbuild') || !vStr.includes('return!gGe()');
   console.log('verification:', vOk ? 'PASSED' : 'FAILED');
   console.log('cracked binary ready:', outPath);
 } catch (e) {
