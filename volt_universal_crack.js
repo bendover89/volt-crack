@@ -1,14 +1,18 @@
 // =============================================================================
 //  VOLT UNIVERSAL CRACK — works on any version
-//  Usage: node volt_universal_crack.exe [path-to-tauri-app.exe]
+//  Usage: node volt_universal_crack.js [path-to-tauri-app.exe]
 //  Finds the auth-gating JS asset automatically, patches it, re-embeds.
+//
+//  Patch sets:
+//    PATCH_PATTERNS  — always applied (auth gates + real-build attach gates)
+//    UI_PATCHES      — opt-in via ENABLE_UI_PATCHES (profile/branding rewrite
+//                      render code; a bad patch there blanks the whole UI)
 // =============================================================================
 
 const fs = require('fs');
 const zlib = require('zlib');
 
 const exePath = process.argv[2] || (() => {
-  // auto-detect: check common Volt install locations
   const candidates = [
     process.env.LOCALAPPDATA + '\\Volt\\tauri-app.exe',
     process.env.LOCALAPPDATA + '\\volt\\tauri-app.exe',
@@ -34,7 +38,6 @@ while (true) {
   let e = idx;
   while (e < data.length && data[e] >= 0x20 && data[e] <= 0x7E) e++;
   let p = data.toString('ascii', idx, e);
-  // trim to known extension
   const exts = ['.js', '.css', '.html', '.json', '.wasm', '.ttf'];
   let best = -1;
   for (const ext of exts) {
@@ -51,6 +54,7 @@ console.log('JS assets found:', paths.length);
 
 // ===== STEP 2: decompress each and find the one with auth markers =====
 const AUTH_MARKERS = ['authenticationEnabled', 'signed_out', 'claim_license', 'get_hwid'];
+
 const PATCH_PATTERNS = [
   {
     // the auth master switch
@@ -70,22 +74,27 @@ const PATCH_PATTERNS = [
     replace: 'authenticationEnabled&&!1',
     description: 'authenticationEnabled -> false'
   },
-  // ── real-build illusion: make the app believe it is a licensed build ──
   {
     // capabilities accessor -> report real-build capabilities
-    // (robloxIntegration is the flag the UI checks before allowing attach/execute)
+    // CRITICAL: keep the original function name (Wzi) - it is exported from
+    // the module and referenced by other code. Replace the body only.
     match: /function \w+\(\)\{return \w+\(\)\.capabilities\}/,
-    replace: 'function capsReal(){return{robloxIntegration:1,processManagement:1,processMetrics:1,secureSecretStorage:1,browserLogin:1}}/*realbuild*/',
-    description: 'capabilities() -> real-build capabilities (robloxIntegration on)'
+    replace: 'function Wzi(){return{robloxIntegration:1,processManagement:1,processMetrics:1,secureSecretStorage:1,browserLogin:1}}/*realbuild*/',
+    description: 'Wzi() body -> real-build capabilities (name preserved for exports)'
   },
   {
-    // attach/execute gate: Wzi().robloxIntegration && !KR() && roblox installed &&
-    // path && version && kind!=="unsupported"  ->  always allowed
-    match: /function \w+\(n\)\{return!!\(\w+\(\)\.robloxIntegration&&!\w+\(\)&&n\?\.roblox\.installed&&n\.roblox\.path&&n\.roblox\.version&&n\.roblox\.kind!=="unsupported"\)\}/,
-    replace: 'function attachAllowedReal(){return!0}/*realbuild*/',
-    description: 'aKi() -> always true (real-build attach gate)'
+    // attach/execute gate -> always allowed
+    // CRITICAL: keep the original function name (aKi) - callers reference it.
+    match: /function (\w+)\(n\)\{return!!\(\w+\(\)\.robloxIntegration&&!\w+\(\)&&n\?\.roblox\.installed&&n\.roblox\.path&&n\.roblox\.version&&n\.roblox\.kind!=="unsupported"\)\}/,
+    replace: 'function aKi(n){return!0}/*realbuild*/',
+    description: 'aKi() body -> always true (name preserved for callers)'
   },
-  // ── real-build profile: GOONERCELL, member since 7 years ──
+];
+
+// UI patches (profile/branding) are opt-in: they rewrite render code and
+// a bad patch here blanks the whole UI. Enable only after visual QA.
+const ENABLE_UI_PATCHES = false;
+const UI_PATCHES = [
   {
     // profile header: fake founder-tier user (header is null without auth user)
     match: /function Qzi\(\)\{const\{user:n\}=eJ\(\),\{settings:e\}=Jd\(\);if\(!n\)return null;/,
@@ -116,8 +125,42 @@ const PATCH_PATTERNS = [
     replace: 'queryFn:()=>Vzi(d.id),enabled:!0&&!!d',
     description: 'license-keys query -> enabled'
   },
+  {
+    match: /children:"Welcome to Volt"/,
+    replace: 'children:"Welcome to VibeCoded Volt"',
+    description: 'welcome text -> VibeCoded Volt'
+  },
+  {
+    match: /children:"Volt"/,
+    replace: 'children:"VibeCoded Volt"',
+    description: 'heading -> VibeCoded Volt'
+  },
+  {
+    match: /children:"Join Volt"/,
+    replace: 'children:"Join VibeCoded Volt"',
+    description: 'join text -> VibeCoded Volt'
+  },
+  {
+    match: /children:"Volt Editor"/,
+    replace: 'children:"VibeCoded Volt Editor"',
+    description: 'editor label -> VibeCoded Volt'
+  },
+  {
+    match: /children:"Claim a license key to activate Volt access\."/,
+    replace: 'children:"Claim a license key to activate VibeCoded Volt access."',
+    description: 'license hint -> VibeCoded Volt'
+  },
+  {
+    match: /children:"NoAuth builds run locally without contacting Volt account or subscription services\."/,
+    replace: 'children:"VibeCoded Volt runs locally - no account or subscription services."',
+    description: 'noauth note -> VibeCoded Volt'
+  },
 ];
+if (ENABLE_UI_PATCHES) {
+  PATCH_PATTERNS.push(...UI_PATCHES);
+}
 
+// ===== STEP 3: decompress each and find the auth asset =====
 let mainAsset = null;
 for (const p of paths) {
   const slice = data.slice(p.dataOff, Math.min(p.dataOff + 5000000, data.length));
@@ -138,7 +181,7 @@ if (!mainAsset) {
   process.exit(1);
 }
 
-// ===== STEP 3: apply patches (same-length where possible) =====
+// ===== STEP 4: apply patches =====
 let jsStr = mainAsset.str;
 let applied = 0;
 
@@ -146,7 +189,6 @@ for (const patch of PATCH_PATTERNS) {
   const matches = jsStr.match(patch.match);
   if (!matches) { console.log('  skip: ' + patch.description + ' (pattern not found)'); continue; }
 
-  // for each occurrence
   let searchFrom = 0;
   let count = 0;
   while (true) {
@@ -155,14 +197,12 @@ for (const patch of PATCH_PATTERNS) {
     const idx = searchFrom + m.index;
     const original = m[0];
 
-    // build same-length replacement
+    // pad shorter replacements; NEVER truncate - a truncated replacement is a
+    // syntax error that blanks the whole UI. Brotli re-compression absorbs
+    // any length change.
     let replacement = patch.replace;
     if (replacement.length < original.length) {
-      // pad with spaces inside the expression
       replacement = replacement.padEnd(original.length);
-    } else if (replacement.length > original.length) {
-      // try to shrink by using shorter forms
-      replacement = replacement.substring(0, original.length);
     }
 
     jsStr = jsStr.substring(0, idx) + replacement + jsStr.substring(idx + original.length);
@@ -177,24 +217,15 @@ console.log('total patches applied:', applied);
 
 if (applied === 0) {
   console.log('WARNING: no patches applied! The auth system may have changed.');
-  console.log('Attempting fallback: force authenticationEnabled to false...');
-  // fallback: find any occurrence and replace
-  const idx = jsStr.indexOf('authenticationEnabled');
-  if (idx >= 0) {
-    jsStr = jsStr.substring(0, idx) + 'authenticationDisabled' + jsStr.substring(idx + 21);
-    applied++;
-    console.log('fallback patch applied');
-  }
 }
 
-// ===== STEP 4: recompress =====
+// ===== STEP 5: recompress =====
 const newJs = Buffer.from(jsStr, 'utf8');
 console.log('patched JS size:', newJs.length);
 
-// find original compressed size
-let origSize = -1;
 // assets are laid out as [path string][brotli blob] back to back:
 // the end of this blob is the start of the NEXT asset's path string
+let origSize = -1;
 let nextPathStart = -1;
 for (const p of paths) {
   if (p.pathOff > mainAsset.dataOff) {
@@ -217,22 +248,20 @@ for (const q of [11, 10, 9, 8, 7, 6, 5, 4]) {
 }
 console.log('best compressed:', best.length, 'bytes');
 
-// pad to original size
 if (best.length < origSize) {
   const pad = Buffer.alloc(origSize - best.length);
   best = Buffer.concat([best, pad]);
 }
 
-// ===== STEP 5: re-embed =====
+// ===== STEP 6: re-embed =====
 const patched = Buffer.from(data);
 best.copy(patched, mainAsset.dataOff);
 
-// write to a NEW file (don't overwrite the original)
 const outPath = exePath.replace(/\.exe$/, ' CRACKED.exe');
 fs.writeFileSync(outPath, patched);
 console.log('written:', outPath);
 
-// ===== STEP 6: verify =====
+// ===== STEP 7: verify =====
 const vData = fs.readFileSync(outPath);
 const vSlice = vData.slice(mainAsset.dataOff, Math.min(mainAsset.dataOff + 5000000, vData.length));
 try {
