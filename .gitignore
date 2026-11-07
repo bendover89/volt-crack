@@ -1,12 +1,8 @@
-# ── Volt Cracked ── source-only repo ──
-# Vendor binaries are never committed (opaque blobs, nothing to review).
+# ── Volt Cracked ── repo layout ──
+# Binaries are committed: the three PE files in plain git, volt.bin via LFS.
 
-# Volt's compiled modules and payloads
-*.exe
-*.dll
-*.bin
+# the full installed app folder stays out (uninstaller, lsp, workspace)
 Volt/
-!build.bat
 
 # build output
 dist/

@@ -11,9 +11,8 @@ patched app runs fully offline: no login, no key, no subscription check.
 
 ## Repository layout
 
-This repo is **source-only**. Vendor binaries are intentionally *not* committed —
-they are opaque compiled blobs with no source available, so they cannot be
-reviewed here and would bloat the repository.
+This repo includes the **full working package**: patcher, install scripts, and
+the binaries (three PE files in plain git, `volt.bin` via Git LFS).
 
 ```
 volt_universal_crack.js   version-agnostic patcher (this repo's actual tool)
@@ -26,15 +25,28 @@ build.bat                 validates all scripts + packages a release zip
 LICENSE                   MIT
 ```
 
-Binaries referenced by the scripts (distributed separately, not via git):
+## Binaries included
 
-| File | Role |
-|---|---|
-| `tauri-app.exe` | patched Volt UI (NoAuth) |
-| `Executor.dll`  | executor module injected into Roblox |
-| `Emulator.dll`  | emulator module |
-| `volt.bin`      | Roblox client payload |
-| `volt-installer.exe` | original NSIS installer (fresh installs) |
+All compiled artifacts ship in this repository. `volt.bin` is stored via
+Git LFS (it exceeds GitHub's 100 MB plain-git limit); the rest is plain git.
+
+| File | Size | Role | SHA256 |
+|---|---|---|---|
+| `tauri-app.exe` | 14.5 MB | patched Volt UI (NoAuth) | `1010ae9b...0bf958` |
+| `Executor.dll` | 30.2 MB | executor module injected into Roblox | `de90e442...d357ed` |
+| `Emulator.dll` | 16.9 MB | emulator module | `9c849d1b...a87927f` |
+| `volt.bin` | 104.5 MB | Roblox client payload (LFS) | `f526f952...510965` |
+| `volt-installer.exe` | 11.7 MB | original NSIS installer (fresh installs) | `69f1ca99...6da0a79` |
+
+Full hashes for copy-paste verification:
+
+```
+1010ae9bf0c27cc65f88ac3014b344c99aa4524166c1eb9ede2c84be7c0bf958  tauri-app.exe
+de90e442bf381d0c3ad09c9b9480805591d8d7ecb036fca875e7a0bb72d357ed  Executor.dll
+9c849d1bd8b048bc11c2912d407770c54a71dae918c7f65770edc0c5ea87927f  Emulator.dll
+f526f952692f3d2c1c26a03841ed1ba4e5d35ddf63ef2188c22748e3d9510965  volt.bin
+69f1ca991564395011ed56712271cfe8f57e2cf7c82cf186a1c45a6496da0a79  volt-installer.exe
+```
 
 ## Usage
 
@@ -106,5 +118,5 @@ Get-FileHash .\Executor.dll -Algorithm SHA256
 
 This project documents how desktop apps that keep secrets in client-side
 JavaScript are trivially mutable. It is published for research and education.
-Do not use it with software you have not licensed. No proprietary binaries,
-assets, or vendor code are included in this repository.
+Do not use it with software you have not licensed. No proprietary *source
+code* is included — only compiled artifacts and scripts, published as-is.
