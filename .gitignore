@@ -1,0 +1,22 @@
+# ── Volt Cracked ── source-only repo ──
+# Vendor binaries are never committed (opaque blobs, nothing to review).
+
+# Volt's compiled modules and payloads
+*.exe
+*.dll
+*.bin
+Volt/
+!build.bat
+
+# build output
+dist/
+build/
+release/
+
+# node / editor noise
+node_modules/
+*.log
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
