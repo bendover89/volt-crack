@@ -17,6 +17,9 @@ reviewed here and would bloat the repository.
 
 ```
 volt_universal_crack.js   version-agnostic patcher (this repo's actual tool)
+src/volt_universal_crack.js   same patcher, canonical location (kept in sync)
+src/volt_crack.js             minimal one-shot example (fixed asset name)
+docs/METHOD.md                reverse-engineering write-up
 setup.ps1                 quick setup for an existing Volt install
 install.ps1               full installer for a fresh install
 build.bat                 validates all scripts + packages a release zip
